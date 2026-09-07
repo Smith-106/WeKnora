@@ -41,7 +41,34 @@ func (s *knowledgeBaseService) GetQueryEmbedding(ctx context.Context, kbID strin
 		return nil, err
 	}
 
-	return embeddingModel.Embed(ctx, queryText)
+	// Same model + same query text → same vector. The cache key includes the
+	// model identity so switching models (or the same model under a different
+	// tenant) never serves a stale embedding.
+	cacheKey := embeddingModel.GetModelID() + "|" + queryText
+	if cached, ok := s.queryEmbCache.Get(cacheKey); ok {
+		if vec, ok := cached.([]float32); ok {
+			logger.Debugf(ctx, "GetQueryEmbedding: cache hit for query (model=%s)", embeddingModel.GetModelID())
+			return vec, nil
+		}
+	}
+
+	singleton := s.queryEmbLocks.lock(cacheKey)
+	defer s.queryEmbLocks.unlock(cacheKey, singleton)
+	// Re-check after acquiring the lock: another goroutine may have filled it.
+	if cached, ok := s.queryEmbCache.Get(cacheKey); ok {
+		if vec, ok := cached.([]float32); ok {
+			logger.Debugf(ctx, "GetQueryEmbedding: cache hit after lock (model=%s)", embeddingModel.GetModelID())
+			return vec, nil
+		}
+	}
+
+	emb, err := embeddingModel.Embed(ctx, queryText)
+	if err != nil {
+		logger.Errorf(ctx, "GetQueryEmbedding: embedding failed for model %s: %v", kb.EmbeddingModelID, err)
+		return nil, err
+	}
+	s.queryEmbCache.Set(cacheKey, emb)
+	return emb, nil
 }
 
 // ResolveEmbeddingModelKeys resolves embedding model IDs to their actual model
