@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-09-09
+
+### Performance
+
+- **PERF**: **BM25 result cache** — keyword search results are cached per corpus/query, keyed so that an unreadable corpus version bypasses the cache instead of serving stale data (`fix(retriever): bypass keywords cache when corpus version is unreadable`).
+- **PERF**: **Embedding retry / LRU / timeout** — retries folded into the OpenAI-compatible client instead of nested per-call loops, a cache-LRU with bounded memory, and explicit per-request timeouts so stalled upstreams fail fast.
+- **PERF**: **ivfflat probes** — for vector dimensions > 4000 (the ivfflat partial-index path) `VectorRetrieve` now issues `SET LOCAL ivfflat.probes=8` for that query, keeping the hnsw.ef_search path unchanged; error-match fallback also covers `ivfflat.probes`.
+- **PERF**: **Embedding locks & LRU** — `GetQueryEmbedding` gets an in-process 2k-entry / 24h-TTL LRU with a per-key singleflight lock to dedupe concurrent identical queries.
+
+### Changed
+
+- **CHORE**: Stop tracking local deployment artifacts (e.g. `backups/` and per-env override files) — repository hygiene; gitignore covers them.
+
+### Fixed
+
+- **FIX**: Keywords-cache correctness — when a corpus version is unreadable, retrieval bypasses the result cache rather than returning potentially stale hits.
+
+### Tests
+
+- **TEST**: Added coverage for embedding locks, LRU eviction, redislock failure paths, and OpenAI retry behavior (`internal/application/service`, `internal/common`, `internal/common/redislock`, `internal/models/embedding`). De-flaked the SSRF whitelist cache test across test orderings.
+
 ## [0.8.0] - 2026-09-03
 
 ### New Features
